@@ -1,0 +1,135 @@
+services:
+  postgres:
+    image: postgres:15
+    environment:
+      POSTGRES_USER: myuser
+      POSTGRES_PASSWORD: pgpwd
+      POSTGRES_DB: postgres
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U myuser -d postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  mongo:
+    image: mongo:6
+    ports:
+      - "27017:27017"
+    healthcheck:
+      test: echo 'db.runCommand("ping").ok' | mongosh localhost:27017/test --quiet
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  rabbitmq:
+    image: rabbitmq:3-management
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+    environment:
+      RABBITMQ_DEFAULT_USER: guest
+      RABBITMQ_DEFAULT_PASS: guest
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  search_service:
+    build: ./services/search_service
+    ports:
+      - "8001:80"
+    environment:
+      MONGO_URL: mongodb://mongo:27017
+      AMQP_URL: amqp://guest:guest@rabbitmq:5672/
+      CATALOG_SERVICE_URL: http://catalog_service:80
+    depends_on:
+      mongo:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+
+  documents_service:
+    build: ./services/documents_service
+    ports:
+      - "8002:80"
+    environment:
+      POSTGRES_URL: postgresql://myuser:pgpwd@postgres:5432/postgres
+      AMQP_URL: amqp://guest:guest@rabbitmq:5672/
+    depends_on:
+      postgres:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+
+  catalog_service:
+    build: ./services/catalog_service
+    ports:
+      - "8003:8000"
+    environment:
+      POSTGRES_URL: postgresql://myuser:pgpwd@postgres:5432/postgres
+      AMQP_URL: amqp://guest:guest@rabbitmq:5672/
+    depends_on:
+      postgres:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+
+  partner_service:
+    build: ./services/partner_service
+    ports:
+      - "8004:8000"
+    environment:
+      POSTGRES_URL: postgresql://myuser:pgpwd@postgres:5432/postgres
+      AMQP_URL: amqp://guest:guest@rabbitmq:5672/
+      CATALOG_SERVICE_URL: http://catalog_service:80
+    depends_on:
+      postgres:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+
+  customer_service:
+    build: ./services/customer-service
+    ports:
+      - "8005:8000"
+    environment:
+      DATABASE_URL: postgresql://myuser:pgpwd@postgres:5432/postgres
+      RABBITMQ_URL: amqp://guest:guest@rabbitmq:5672/
+      JWT_SECRET_KEY: "my_super_secret_key_123"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+
+  trip_reviews_service:
+    build: ./services/trip-reviews-service
+    ports:
+      - "8006:8000"
+    environment:
+      MONGODB_URL: mongodb://mongo:27017
+      RABBITMQ_URL: amqp://guest:guest@rabbitmq:5672/
+      JWT_SECRET_KEY: "my_super_secret_key_123"
+      BOOKING_SERVICE_URL: http://kaikhan_services:80
+    depends_on:
+      mongo:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+
+  kaikhan_services:
+    build: ./services/kaikhan_services
+    ports:
+      - "8007:8000"
+    environment:
+      DATABASE_URL: postgresql://myuser:pgpwd@postgres:5432/postgres
+      RABBITMQ_URL: amqp://guest:guest@rabbitmq:5672/
+      CUSTOMER_SERVICE_URL: http://customer_service:80
+    depends_on:
+      postgres:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
